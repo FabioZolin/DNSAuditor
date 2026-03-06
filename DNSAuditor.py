@@ -3,7 +3,7 @@ import sys
 import os
 import math
 from collections import Counter
-from scapy.all import PcapReader, DNS, DNSQR, UDP
+from scapy.all import PcapReader, DNS, DNSQR, UDP, IP
 
 try:
     from colorama import init, Fore, Style
@@ -105,7 +105,7 @@ def is_subdomain_number_suspicious(looked_up_domain, threshold):
     """Checks if the count of subdomains (dots) exceeds the given threshold."""
     return looked_up_domain.count(".") >= threshold
 
-def analyze_pcap(pcap_file, domain_length_threshold, entropy_threshold, subdomain_threshold, show_txt, show_null, show_cname, verbose):
+def analyze_pcap(pcap_file, domain_length_threshold, entropy_threshold, subdomain_threshold, show_txt, show_null, show_cname, verbose, very_verbose):
     """
     Main analysis engine. Parses the PCAP file, inspects DNS queries against thresholds,
     updates statistics, and prints alerts based on user-defined flags.
@@ -123,6 +123,9 @@ def analyze_pcap(pcap_file, domain_length_threshold, entropy_threshold, subdomai
     if not os.path.isfile(pcap_file):
         print(f"[{RED}ERROR{RESET}] The file '{pcap_file}' doesn't exist or the specified path is wrong.")
         sys.exit(1)
+
+    if very_verbose:
+        verbose=True
         
     print(f"[{GREEN}INFO{RESET}] Starting file analysis: {pcap_file}...")
     
@@ -136,47 +139,67 @@ def analyze_pcap(pcap_file, domain_length_threshold, entropy_threshold, subdomai
     txt_queries = 0
     null_queries = 0
     cname_queries = 0
+    txt_polling_ips = Counter()
+    exfiltrating_ips = Counter()
+    
     with PcapReader(pcap_file) as packets:
         for packet in packets:
             # Check if the packet has a DNS Question Record
-            if packet.haslayer(DNSQR): 
+            if packet.haslayer(DNSQR) and packet.haslayer(IP): 
                 try:
+                    is_exfil = False
+                    is_c2 = False
                     # Extraction and cleaning of the queried domain
                     looked_up_domain = packet[DNSQR].qname.decode('utf8').rstrip('.')
+                    src_ip = packet[IP].src
+
+                    #dst ip will be implemented later
+                    #dst_ip = packet[IP].dst
                     total_dns_queries += 1
 
                     # Check 1: Length
                     if is_length_suspicious(looked_up_domain, domain_length_threshold):
                         long_queries += 1
-                        if verbose:
+                        if very_verbose:
                             print(f"[{YELLOW}WARNING{RESET}] Long Query: {looked_up_domain} ({len(looked_up_domain)} chars)")
 
                     # Check 2: Entropy
                     entropy_score = calculate_DNS_domain_entropy(looked_up_domain)
                     if is_entropy_suspicious(entropy_score, entropy_threshold):
                         high_entropy_queries += 1
-                        print(f"[{RED}ALERT{RESET}] High Entropy ({entropy_score:.2f}): {looked_up_domain}")
+                        if not is_exfil:
+                            exfiltrating_ips[src_ip] += 1
+                            is_exfil=True
+                        if verbose:
+                            print(f"[{RED}ALERT{RESET}] High Entropy ({entropy_score:.2f}): {looked_up_domain}")
 
                     # Check 3: Subdomain Number
                     if is_subdomain_number_suspicious(looked_up_domain, subdomain_threshold):
                         high_subdomain_queries += 1
-                        if verbose:
+                        if very_verbose:
                             print(f"[{YELLOW}WARNING{RESET}] Many Subdomains in Query: {looked_up_domain} ({len(looked_up_domain)} chars)")
 
                     # Check 4: Specific Exfiltration Records
                     if is_TXT_request(packet):
                         txt_queries += 1
-                        if show_txt or verbose:
+                        if not is_c2:
+                            txt_polling_ips[src_ip]+=1
+                            is_c2 = True
+                        if show_txt or very_verbose:
                             print(f"[{YELLOW}WARNING{RESET}] TXT Request: {looked_up_domain}")
 
                     elif is_NULL_request(packet):
                         null_queries += 1
+                        if not is_exfil:
+                            exfiltrating_ips[src_ip] += 1
+                            is_exfil=True
                         if show_null or verbose:
-                            print(f"[{RED}CRITICAL{RESET}] NULL Request: {looked_up_domain}")
+                            print(f"[{RED}CRITICAL{RESET}] NULL Request: {looked_up_domain} srcIP :{packet[IP].src}")
+
 
                     elif is_CNAME_request(packet):
                         cname_queries += 1
-                        if show_cname or verbose:
+                        if show_cname or very_verbose:
                             print(f"[{YELLOW}WARNING{RESET}] CNAME Request: {looked_up_domain}")
 
                 except Exception:
@@ -205,6 +228,20 @@ def analyze_pcap(pcap_file, domain_length_threshold, entropy_threshold, subdomai
         print(f" - NULL Queries:      {null_queries} ({null_pct:.2f}%)")
         print(f" - CNAME Queries:     {cname_queries} ({cname_pct:.2f}%)")
 
+        if txt_polling_ips or exfiltrating_ips:
+            print(f"\n--- Suspicious Hosts (Top Offenders) ---")
+            # Classifica C2 / Polling (Giallo/Warning)
+            if txt_polling_ips:
+                print(f" [{YELLOW}C2 POLLING{RESET}] Top IPs requesting TXT records:")
+                for ip, count in txt_polling_ips.most_common(5):
+                    print(f"   -> {ip}: {count} requests")
+            
+            # Classifica Esfiltrazione Dati (Rosso/Critical)
+            if exfiltrating_ips:
+                print(f" [{RED}DATA EXFILTRATION{RESET}] Top IPs triggering High Entropy or NULL records:")
+                for ip, count in exfiltrating_ips.most_common(5):
+                    print(f"   -> {ip}: {count} alerts")
+
 def main():
     print_banner()
     
@@ -220,16 +257,16 @@ def main():
     parser.add_argument("-f", "--file", help="Path to the .pcap file to analyze", required=True)
 
     # Optional Thresholds
-    parser.add_argument("-dl", "--domain_length", help="Specifies the max domain length before flagging (default: 30)", required=False)
-    parser.add_argument("-et", "--entropy_threshold", help="Specifies the minimum entropy score before flagging (default: 3.2)", required=False)
-    parser.add_argument("-sn", "--subdomain_number", help="Specifies the max number of subdomains before flagging (default: 4)", required=False)
+    parser.add_argument("-dl", "--domain_length", help="Specifies the max domain length before flagging (default: 30)")
+    parser.add_argument("-et", "--entropy_threshold", help="Specifies the minimum entropy score before flagging (default: 3.2)")
+    parser.add_argument("-sn", "--subdomain_number", help="Specifies the max number of subdomains before flagging (default: 4)")
 
     # Output Control Flags
     parser.add_argument("-t", "--txt", help="Display all TXT DNS requests in the output", action="store_true")
     parser.add_argument("-n", "--null", help="Display all NULL DNS requests in the output (Highly suspicious)", action="store_true")
     parser.add_argument("-c", "--cname", help="Display all CNAME DNS requests in the output", action="store_true")
-    parser.add_argument("-v", "--verbose", help="Enable verbose mode (displays all warnings and suspicious records)", action="store_true")
-    
+    parser.add_argument("-v", "--verbose", help="Enable verbose mode (displays Critical and Alert individual records)", action="store_true")
+    parser.add_argument("-vv", "--very_verbose", help="Enable very verbose mode (displays all warnings and suspicious records)", action="store_true")
     # Parse arguments
     args = parser.parse_args()
     
@@ -246,7 +283,7 @@ def main():
         subdomain_threshold = int(args.subdomain_number)
 
     # Start the analysis
-    analyze_pcap(args.file, domain_length_threshold, entropy_threshold, subdomain_threshold, args.txt, args.null, args.cname, args.verbose)
+    analyze_pcap(args.file, domain_length_threshold, entropy_threshold, subdomain_threshold, args.txt, args.null, args.cname, args.verbose, args.very_verbose)
 
 if __name__ == "__main__":
     main()
