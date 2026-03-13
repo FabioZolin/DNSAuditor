@@ -1,81 +1,46 @@
-# DNS Tunneling & Exfiltration Auditor (v2.0)
+# 🛡️ NetAuditor Suite
 
-A lightweight PCAP analyzing tool designed to audit DNS traffic in .pcap capture files and find potential data exfiltration or C2 packets, identifying potentially compromised hosts.
+**A collection of PCAP analysis tools designed to detect data exfiltration, C2 beaconing, and tunneling through protocol-specific analysis.**
 
-This script performs packet inspection on both outbound queries (`DNSQR`) and inbound C2 responses (`DNSRR`), identifying malicious behaviour.
+The NetAuditor Suite provides specialized, memory-efficient scripts to analyze network captures (`.pcap`) protocol by protocol. These tools use Scapy and Pyshark libraries to parse thousands of packets of traffic, apply statistical models, and highlight anomalous behaviors typical of advanced persistent threats (APTs) and modern malware.
 
-## Features
+## 🧰 The Toolkit
 
-DNSAuditor can:
-- **Analyze PCAP files offline** without exhausting system RAM even with sizable PCAP files, thanks to sequential packet processing.
-- **Calculate Shannon Entropy** to automatically detect encrypted or encoded data hidden in subdomains, the entropy is automatically adjusted based on the detected alphabet (Hex, Base32, Base64/ Regular Text) .
-- **Detect Domain Anomalies** such as excessively long query lengths or abnormal subdomain counts indicating possible data exfiltration.
-- **Track Specific Record Types** actively used for C2 and exfiltration (TXT, NULL, CNAME).
-- **Rank Suspicious Hosts** by automatically generating a "Top Offenders" list, correlating alerts to internal IP addresses that might show indicators of compromise.
-- **Filter Noise** via tiered verbosity levels (`-v` for critical alerts, `-vv` for all warnings).
-- **C2 Payload Extraction:** Intercepts and decodes TXT and NULL record responses, highlighting the inbound binary/text payloads sent by the attacker.
+Currently, the suite includes the following specialized auditors. **Click on each tool's name to read its specific documentation and usage guide.**
 
-## Installation
+| Status | Tool | Target Protocol | Key Capabilities |
+| :---: | :--- | :--- | :--- |
+| 🟢 | [**ICMPAuditor**](./ICMPAuditor) | ICMP | Payload asymmetry (RFC 792), Entropy analysis, C2 Beaconing, Covert channels. |
+| 🟢 | [**DNSAuditor**](./DNSAuditor) | DNS | DNS Tunneling, DGA (Domain Generation Algorithms), High-volume TXT/A queries. |
+| 🟡 | **HTTPSAuditor** *(WIP)* | HTTPS / TLS | Behavioral beaconing (Jitter/Delta time), SNI anomalies, TLS fingerprinting. |
+| 🟡 | **SMBAuditor** *(WIP)* | SMB / RPC | Lateral movement detection, Admin share abuse, Data hoarding. |
 
-It is highly recommended to run this tool inside a Python Virtual Environment to avoid conflicts with other system libraries.
-Steps 2 and 3 are optional if you dont need the python virtual environment and you are sure there wont be conflicts with said libraries.
+*(🟢 = Ready / 🟡 = Work in Progress)*
+
+## ⚙️ Global Installation
+
+The suite is designed to be highly portable with minimal dependencies.
 
 **1. Clone the repository:**
-`git clone https://github.com/TUO-USERNAME/dns-auditor.git`
-`cd dns-auditor`
-
-**2. Create a Virtual Environment:**
-On Linux/macOS: `python3 -m venv venv`
-On Windows: `python -m venv venv`
-
-**3. Activate the Virtual Environment:**
-On Linux/macOS: `source venv/bin/activate`
-On Windows: `venv\Scripts\activate`
-
-**4. Install dependencies:**
-`pip install -r requirements.txt`
-
-## Usage
-
-Use the `-h` flag to display all available options and thresholds.
-
-### Arguments List
-Use the `-h` flag to display all available options and thresholds in terminal.
-| Flag | Name | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `-f` | `--file` | **(Required)** Path to the `.pcap` file | - |
-| `-dl` | `--domain_length` | Max allowed domain length before flagging | `30` |
-| `-et` | `--entropy_threshold` | Minimum Shannon entropy score before flagging | `4.0` |
-| `-sn` | `--subdomain_number`| Max number of subdomains before flagging | `5` |
-| `-v` | `--verbose` | Shows standard warnings and suspicious records | `False` |
-| `-vv`| `--very_verbose` | Shows everything (including presumed legit TXT) | `False` |
-| `-t` | `--txt` | Displays all TXT DNS requests | `False` |
-| `-n` | `--null` | Displays all NULL DNS requests (Highly suspicious) | `False` |
-| `-c` | `--cname` | Displays all CNAME DNS requests | `False` |
-
-### Usage Examples
-Run the script providing a `.pcap` or `.pcapng` file. 
-
-#### Basic Analysis (Fast Triage)
-Generates a statistical report and prints only High Entropy / NULL record alerts.
-```bash 
-python dns_auditor.py -f suspicious_traffic.pcap
-```
-
-#### Deep Dive (Verbose Mode)
-Prints all warnings (long domains, many subdomains, CNAME/TXT requests) and suspicious inbound C2 TXT formats.
 ```bash
-python dns_auditor.py -f suspicious_traffic.pcap -v
+git clone https://github.com/YOUR_USERNAME/NetAuditor-Suite.git
+cd NetAuditor-Suite
 ```
-
-#### Custom Thresholds
-If you are analyzing an environment with specific noise patterns, you can tweak the detection engine:
+**2. Create a virtual environment (Highly Recommended):**
 ```bash
-`python dns_auditor.py -f suspicious_traffic.pcap -dl 40 -et 4.5 -sn 6
+python -m venv venv
+source venv/bin/activate  # On Windows use: venv\Scripts\activate
 ```
+**3. Install the global requirements:**
+```bash
+pip install -r requirements.txt
+```
+*(This will install the required core libraries like scapy and colorama for all the tools in the suite).*
 
+## Current Development
 
-## Built With
-* Python 3
-* [Scapy](https://scapy.net/) - Packet manipulation program & library
-* [Colorama](https://pypi.org/project/colorama/) - Cross-platform colored terminal text
+As you can see from the tools status I am currently working on two more advanced projects, `HTTPSAuditor` to get into an up-to-date method of tunneling to and from outside networks. This project will allow me to get a further understanding of behavioural analysis and finding other aspects to monitor apart from the data itself.
+
+The other project is `SMBAuditor` which will be a detector for SMB lateral movement inside the network, instead of outside tunneling like the other projects.
+
+This project started as just the DNSAuditor to improve my scripting skills and get further into network analysis, let's see where it will end up!
