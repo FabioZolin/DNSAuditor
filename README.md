@@ -1,10 +1,10 @@
-# 🛡️ NetAuditor Suite
+# NetAuditor Suite
 
 **A collection of PCAP analysis tools designed to detect data exfiltration, C2 beaconing, and tunneling through protocol-specific analysis.**
 
 The NetAuditor Suite provides specialized, memory-efficient scripts to analyze network captures (`.pcap`) protocol by protocol. These tools use Scapy and Pyshark libraries to parse thousands of packets of traffic, apply statistical models, and highlight anomalous behaviors typical of advanced persistent threats (APTs) and modern malware.
 
-## 🧰 The Toolkit
+## The Toolkit
 
 Currently, the suite includes the following specialized auditors. **Click on each tool's name to read its specific documentation and usage guide.**
 
@@ -17,7 +17,7 @@ Currently, the suite includes the following specialized auditors. **Click on eac
 
 *(🟢 = Ready / 🟡 = Work in Progress)*
 
-## ⚙️ Global Installation
+## Global Installation
 
 The suite is designed to be highly portable with minimal dependencies.
 
